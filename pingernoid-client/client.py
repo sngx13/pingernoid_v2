@@ -52,7 +52,7 @@ def add_target(target: Target) -> bool:
 
 def main():
     init_db()
-    create_target = Target(ip_addr="9.9.9.9", count=10, timeout=1, size=200, wait=0.05, interval=180)
+    create_target = Target(ip_addr="9.9.9.911", count=10, timeout=1, size=200, wait=0.05, interval=180)
     target = add_target(target=create_target)
     if target:
         logger.info("=> Successfully added probe...")

@@ -1,20 +1,17 @@
 import logging
 import sqlite3
+import socket
 from datetime import datetime
 from uuid import uuid4
 from .database import init_db, DB
+import netifaces
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-def existing_system_id():
-    con = sqlite3.connect(DB)
-    cur = con.cursor()
-    fetch_results = cur.execute("""SELECT id FROM system""").fetchall()
-    if fetch_results:
-        id = fetch_results[0]
-        return id
+def get_local_ip_addr():
+    netifaces.ifaddresses()
 
 
 def main():
@@ -25,10 +22,10 @@ def main():
         fetch_results = cur.execute("""SELECT id FROM system""").fetchall()
         if fetch_results:
             id = fetch_results[0][0]
-            logger.info(f"=> Found existing system id: {id}")
+            logger.info(f"=> System is warm starting... existing id: {id}")
         else:
             id = str(uuid4())
-            logger.info(f"=> System is starting up with: {id}")
+            logger.info(f"=> System is cold starting... generating new id: {id}")
             cur.execute(
                 """INSERT INTO system VALUES (?, ?)""",
                 (

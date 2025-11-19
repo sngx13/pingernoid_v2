@@ -18,7 +18,9 @@ def create_system_table() -> None:
             """
                 CREATE TABLE IF NOT EXISTS system (
                     id TEXT NOT NULL,
-                    timestamp TEXT NOT NULL
+                    timestamp TEXT NOT NULL,
+                    local_ip_addr TEXT NOT NULL,
+                    public_ip_addr TEXT NOT NULL
                 )
             """
         )

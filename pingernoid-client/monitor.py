@@ -5,7 +5,7 @@ import logging
 from datetime import datetime
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
-from .database import init_db, DB
+from .database import DB
 from .models import Target
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ def add_result(target: Target, cmd_output: str) -> None:
                 """INSERT INTO results VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     str(uuid4()),
-                    target.ip_addr,
+                    str(target.ip_addr),
                     str(datetime.now().replace(microsecond=0)),
                     int(match.group(1)),  # SENT
                     int(match.group(2)),  # RCVD
@@ -52,7 +52,7 @@ def ready_to_ping(target: Target) -> bool:
     try:
         con = sqlite3.connect(DB)
         cur = con.cursor()
-        data = cur.execute("""SELECT timestamp from results WHERE ip_addr = ?""", (target.ip_addr,)).fetchall()
+        data = cur.execute("""SELECT timestamp from results WHERE ip_addr = ?""", (str(target.ip_addr),)).fetchall()
         if data:
             previous_result_timestamp = datetime.strptime(data[-1][0], "%Y-%m-%d %H:%M:%S")
             elapsed_time = time_now - previous_result_timestamp
@@ -90,7 +90,7 @@ def send_ping(target: Target) -> None:
                 str(target.size),
                 "-i",
                 str(target.wait),
-                target.ip_addr,
+                str(target.ip_addr),
             ]
             cmd_output = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=target.timeout + 10)
             logger.info(f"=> ICMP output:\n{cmd_output.stdout}")
@@ -99,16 +99,17 @@ def send_ping(target: Target) -> None:
             logger.error(f"=> Ping failed for {target.ip_addr}: Return Code {e.returncode}. Stderr: {e.stderr.strip()}")
         except subprocess.TimeoutExpired:
             logger.error(f"=> Ping command timed out for {target.ip_addr} after {target.timeout + 10} seconds.")
+        except Exception as e:
+            logger.error(f"=> Error: {e} -> {type(e)}")
 
 
 def main():
-    init_db()
     con = sqlite3.connect(DB)
     cur = con.cursor()
     fetch_results = cur.execute("""SELECT ip_addr, count, timeout, size, wait, interval FROM targets""").fetchall()
     if len(fetch_results) > 0:
         targets = [
-            Target(ip_addr, count, timeout, size, wait, interval)
+            Target(ip_addr=ip_addr, count=count, timeout=timeout, size=size, wait=wait, interval=interval)
             for ip_addr, count, timeout, size, wait, interval in fetch_results
         ]
         with ThreadPoolExecutor() as executor:

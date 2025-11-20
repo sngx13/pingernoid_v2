@@ -3,15 +3,16 @@ import sqlite3
 import requests
 from datetime import datetime
 from uuid import uuid4
-from .database import init_db, DB
+from .database import DB
 import netifaces
-from ipaddress import ip_address
+from ipaddress import IPv4Address
+
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-def get_public_ip_addr() -> ip_address:
+def get_public_ip_addr() -> IPv4Address:
     logger.info("=> Attempting to find public IP address...")
     url = "https://api.ipify.org?format=json"
     response = requests.get(url)
@@ -21,7 +22,7 @@ def get_public_ip_addr() -> ip_address:
         return ip_addr
 
 
-def get_local_ip_addr() -> ip_address:
+def get_local_ip_addr() -> IPv4Address:
     logger.info("=> Attempting to find local IP address...")
     interface_with_gateway = netifaces.gateways().get("default")[netifaces.AF_INET]
     if interface_with_gateway:
@@ -33,7 +34,6 @@ def get_local_ip_addr() -> ip_address:
 
 def main():
     try:
-        init_db()
         con = sqlite3.connect(DB)
         cur = con.cursor()
         fetch_results = cur.execute("""SELECT id FROM system""").fetchall()

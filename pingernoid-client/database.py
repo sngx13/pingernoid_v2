@@ -20,7 +20,8 @@ def create_system_table() -> None:
                     id TEXT NOT NULL,
                     timestamp TEXT NOT NULL,
                     local_ip_addr TEXT NOT NULL,
-                    public_ip_addr TEXT NOT NULL
+                    public_ip_addr TEXT NOT NULL,
+                    PRIMARY KEY (id)
                 )
             """
         )
@@ -39,12 +40,14 @@ def create_targets_table() -> None:
         cur.execute(
             """
                 CREATE TABLE IF NOT EXISTS targets (
+                    id TEXT NOT NULL,
                     ip_addr TEXT NOT NULL,
                     count INTEGER,
                     timeout INTEGER,
                     size INTEGER,
                     wait REAL,
-                    interval INTEGER
+                    interval INTEGER,
+                    PRIMARY KEY (id)
                 )
             """
         )
@@ -63,7 +66,7 @@ def create_results_table() -> None:
         cur.execute(
             """
                 CREATE TABLE IF NOT EXISTS results (
-                    id TEXT,
+                    id TEXT NOT NULL,
                     ip_addr TEXT NOT NULL,
                     timestamp TEXT NOT NULL,
                     sent INTEGER,
@@ -72,7 +75,7 @@ def create_results_table() -> None:
                     rtt_min REAL,
                     rtt_avg REAL,
                     rtt_max REAL,
-                    PRIMARY KEY (id, timestamp)
+                    PRIMARY KEY (id)
                 )
             """
         )

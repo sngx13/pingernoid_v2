@@ -1,22 +1,23 @@
 import sqlite3
 import logging
-from ipaddress import ip_address
-from .database import init_db, DB
+from uuid import uuid4
+from ipaddress import IPv4Address
+from .database import DB
 from .models import Target
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-def existing_target(ip_addr: ip_address) -> bool:
+def existing_target(ip_addr: IPv4Address) -> bool:
     logger.info(f"=> Looking up target IP: {ip_addr}")
     try:
         con = sqlite3.connect(DB)
         cur = con.cursor()
-        fetch_results = cur.execute("""SELECT * FROM targets WHERE ip_addr = ?""", (ip_addr,)).fetchall()
+        fetch_results = cur.execute("""SELECT * FROM targets WHERE ip_addr = ?""", (str(ip_addr),)).fetchall()
         if len(fetch_results) > 0:
-            data = fetch_results[0]
-            logger.info(f"=> Found existing target IP: {data[0]} in the database...")
+            data = fetch_results[1]
+            logger.info(f"=> Found existing target IP: {data[1]} in the database...")
             return True
         else:
             logger.info(f"=> Could not find any ICMP probes to the target IP: {ip_addr}")
@@ -40,8 +41,16 @@ def add_target(target: Target) -> bool:
         else:
             logger.info(f"=> Adding new ICMP target: {target.ip_addr}")
             cur.execute(
-                """INSERT INTO targets VALUES (?, ?, ?, ?, ?, ?)""",
-                (str(target.ip_addr), target.count, target.timeout, target.size, target.wait, target.interval),
+                """INSERT INTO targets VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    str(uuid4()),
+                    str(target.ip_addr),
+                    target.count,
+                    target.timeout,
+                    target.size,
+                    target.wait,
+                    target.interval,
+                ),
             )
             con.commit()
             return True
@@ -53,7 +62,6 @@ def add_target(target: Target) -> bool:
 
 
 def main():
-    init_db()
     create_target = Target(ip_addr="8.8.8.8", count=10, timeout=1, size=200, wait=0.05, interval=180)
     target = add_target(target=create_target)
     if target:

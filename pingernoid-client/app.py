@@ -12,7 +12,7 @@ from uuid import uuid4, UUID
 class Result(SQLModel, table=True):
     __tablename__ = "results"
     id: UUID | None = Field(default_factory=uuid4, primary_key=True)
-    ip_addr: str = Field(sa_type=String(15), index=True, unique=True)
+    ip_addr: str = Field(sa_type=String(15), index=True)
     timestamp: datetime
     sent: int
     rcvd: int
@@ -112,10 +112,9 @@ def parse_ping_output(ip_addr: str, output: str) -> Result | None:
 def ready_to_ping(target: TargetBase, session: SessionDep) -> bool:
     print(f"=> Checking whether interval has passed before performing next ICMP test...")
     time_now = datetime.now().replace(microsecond=0)
-    data = session.exec(select(Result.timestamp).where(Result.ip_addr == target.ip_addr)).all()
-    if data:
-        previous_result_timestamp = datetime.strptime(data[-1][0], "%Y-%m-%d %H:%M:%S")
-        elapsed_time = time_now - previous_result_timestamp
+    previous_result_timestamp = session.exec(select(Result.timestamp).where(Result.ip_addr == target.ip_addr)).all()
+    if previous_result_timestamp:
+        elapsed_time = time_now - previous_result_timestamp[0]
         if elapsed_time.total_seconds() < target.interval:
             print(
                 f"=> Not enough time has passed since last ICMP test towards the target: {target.ip_addr}, remaining: {target.interval - elapsed_time.total_seconds()} seconds..."
@@ -160,8 +159,20 @@ def ping_target(target: Target, session: SessionDep):
             print(f"=> Error: {e} -> {type(e)}")
 
 
-@app.post("/target", response_model=Target)
-def add_target(target: TargetBase, session: SessionDep, background_tasks: BackgroundTasks) -> Target:
+@app.get("/targets/", response_model=list[Target])
+def get_targets(session: SessionDep) -> list[Target]:
+    targets = session.exec(select(Target)).all()
+    return targets
+
+
+@app.get("/target/{target_id}", response_model=Target)
+def get_target(target_id: UUID, session: SessionDep) -> Target:
+    target = session.exec(select(Target).where(Target.id == target_id)).first()
+    return target
+
+
+@app.post("/target/", response_model=Target)
+def create_target(target: TargetBase, session: SessionDep, background_tasks: BackgroundTasks) -> Target:
     existing_target = session.exec(select(Target).where(Target.ip_addr == target.ip_addr)).first()
 
     if existing_target:
@@ -175,13 +186,38 @@ def add_target(target: TargetBase, session: SessionDep, background_tasks: Backgr
     return db_target
 
 
-@app.get("/targets", response_model=list[Target])
-def get_targets(session: SessionDep) -> list[Target]:
-    targets = session.exec(select(Target)).all()
-    return targets
+@app.put("/target/{target_id}", response_model=Target)
+def update_target(target_id: UUID, target_data: TargetBase, session: SessionDep) -> Target:
+    existing_target = session.exec(select(Target).where(Target.id == target_id)).first()
+    if not existing_target:
+        raise HTTPException(status_code=404, detail=f"Target with ID {target_id} not found.")
+    updated_target_data = Target(id=target_id, **target_data.model_dump())
+    existing_target.sqlmodel_update(updated_target_data)
+    session.add(existing_target)
+    session.commit()
+    session.refresh(existing_target)
+    return existing_target
 
 
-@app.get("/results", response_model=list[Result])
+@app.delete("/target/{target_id}")
+def delete_target(target_id: UUID, session: SessionDep) -> str:
+    existing_target = session.exec(select(Target).where(Target.id == target_id)).first()
+    if not existing_target:
+        raise HTTPException(status_code=404, detail=f"Target with ID {target_id} not found.")
+    session.delete(existing_target)
+    session.commit()
+    return {"message": f"Target with ID {target_id} was deleted successfully!"}
+
+
+@app.get("/results/", response_model=list[Result])
 def get_results(session: SessionDep) -> list[Result]:
     results = session.exec(select(Result)).all()
+    return results
+
+
+@app.get("/monitor/{target_id}", response_model=list[Result])
+def get_monitor(target_id: UUID, session: SessionDep, background_tasks: BackgroundTasks) -> list[Result]:
+    target = session.exec(select(Target).where(Target.id == target_id)).first()
+    background_tasks.add_task(ping_target, target, session)
+    results = session.exec(select(Result).where(Result.ip_addr == target.ip_addr).order_by(Result.timestamp)).fetchall()
     return results

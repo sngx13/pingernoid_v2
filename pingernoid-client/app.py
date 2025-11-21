@@ -1,10 +1,12 @@
+import re
+import subprocess
 from datetime import datetime
-from uuid import uuid4, UUID
-from fastapi import Depends, FastAPI, HTTPException
-from sqlmodel import Field, Session, SQLModel, String, create_engine, select
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from ipaddress import ip_address
 from pydantic import field_validator
-from ipaddress import IPv4Address, ip_address
+from sqlmodel import Field, Session, SQLModel, String, create_engine, select
 from typing import Annotated
+from uuid import uuid4, UUID
 
 
 class Result(SQLModel, table=True):
@@ -76,8 +78,90 @@ def on_startup():
     create_db_and_tables()
 
 
+def add_result(result: Result, session: SessionDep):
+    print(f"=> Writing ping results to database for: {result.ip_addr}")
+    try:
+        session.add(result)
+        session.commit()
+        session.refresh(result)
+        print(f"=> Successfully wrote result {result.id} to database.")
+    except Exception as e:
+        print(f"=> Failed to write result for {result.ip_addr} to database: {e}")
+
+
+def parse_ping_output(ip_addr: str, output: str) -> Result | None:
+    pattern = re.compile(
+        r"(\d+)\s+packets\s+transmitted,\s+(\d+)\s+packets\s+received.*?(\d+\.\d+)%\s+packet\s+loss.*?(\d+\.\d+)/(\d+\.\d+)/(\d+\.\d+)/",
+        re.DOTALL | re.IGNORECASE,
+    )
+    match = pattern.search(output)
+    if match:
+        result = Result(
+            ip_addr=ip_addr,
+            timestamp=datetime.now(),
+            sent=int(match.group(1)),
+            rcvd=int(match.group(2)),
+            loss=float(match.group(3)),
+            rtt_min=float(match.group(4)),
+            rtt_avg=float(match.group(5)),
+            rtt_max=float(match.group(6)),
+        )
+    return result
+
+
+def ready_to_ping(target: TargetBase, session: SessionDep) -> bool:
+    print(f"=> Checking whether interval has passed before performing next ICMP test...")
+    time_now = datetime.now().replace(microsecond=0)
+    data = session.exec(select(Result.timestamp).where(Result.ip_addr == target.ip_addr)).all()
+    if data:
+        previous_result_timestamp = datetime.strptime(data[-1][0], "%Y-%m-%d %H:%M:%S")
+        elapsed_time = time_now - previous_result_timestamp
+        if elapsed_time.total_seconds() < target.interval:
+            print(
+                f"=> Not enough time has passed since last ICMP test towards the target: {target.ip_addr}, remaining: {target.interval - elapsed_time.total_seconds()} seconds..."
+            )
+            return False
+        else:
+            print(f"=> Time has passed since last ICMP test: {elapsed_time} towards the target: {target.ip_addr}")
+            return True
+    else:
+        print(f"=> Unable to find previous ICMP tests for the target: {target.ip_addr}")
+        return True
+
+
+def ping_target(target: Target, session: SessionDep):
+    print(f"=> Attempting to send ICMP probes to: {target.ip_addr}")
+    if ready_to_ping(target, session):
+        try:
+            cmd = [
+                "ping",
+                "-c",
+                str(target.count),
+                "-t",
+                str(target.timeout),
+                "-s",
+                str(target.size),
+                "-i",
+                str(target.wait),
+                str(target.ip_addr),
+            ]
+            cmd_output = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=target.timeout + 10)
+            print(f"=> ICMP output:\n{cmd_output.stdout}")
+            parsed_result = parse_ping_output(target.ip_addr, cmd_output.stdout)
+            if parsed_result:
+                add_result(parsed_result, session)
+            else:
+                print(f"=> Failed to parse ping output for {target.ip_addr}")
+        except print.CalledProcessError as e:
+            print(f"=> Ping failed for {target.ip_addr}: Return Code {e.returncode}. Stderr: {e.stderr.strip()}")
+        except subprocess.TimeoutExpired:
+            print(f"=> Ping command timed out for {target.ip_addr} after {target.timeout + 10} seconds.")
+        except Exception as e:
+            print(f"=> Error: {e} -> {type(e)}")
+
+
 @app.post("/target", response_model=Target)
-def add_target(target: TargetBase, session: SessionDep) -> Target:
+def add_target(target: TargetBase, session: SessionDep, background_tasks: BackgroundTasks) -> Target:
     existing_target = session.exec(select(Target).where(Target.ip_addr == target.ip_addr)).first()
 
     if existing_target:
@@ -87,6 +171,7 @@ def add_target(target: TargetBase, session: SessionDep) -> Target:
     session.add(db_target)
     session.commit()
     session.refresh(db_target)
+    background_tasks.add_task(ping_target, target, session)
     return db_target
 
 

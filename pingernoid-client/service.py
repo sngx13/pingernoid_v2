@@ -3,8 +3,8 @@ import subprocess
 from datetime import datetime
 from typing import Optional
 
+from .crud import PingerRepository
 from .models import Result, Target
-from .crud import PingerRepository  # Depend on the Repository
 
 
 def parse_ping_output(ip_addr: str, output: str) -> Optional[Result]:

@@ -3,7 +3,7 @@ from sqlmodel import Session, select
 from typing import Optional
 from uuid import UUID
 
-from .models import Result, Target, TargetBase  # Import models
+from .models import Result, Target, TargetBase
 
 
 class PingerRepository:
@@ -55,6 +55,9 @@ class PingerRepository:
         self.session.add(result)
         self.session.commit()
         self.session.refresh(result)
+
+    def get_result_by_id(self, result_id: UUID) -> Result:
+        return self.session.exec(select(Result).where(Result.id == result_id)).first()
 
     def get_all_results(self) -> list[Result]:
         return self.session.exec(select(Result)).all()

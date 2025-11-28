@@ -5,7 +5,7 @@ from uuid import UUID
 from .database import create_db_and_tables, SessionDep
 from .crud import PingerRepository
 from .service import PingerService
-from .models import Result, Target, TargetBase  # Import necessary schemas
+from .models import Result, Target, TargetBase
 
 # --- Dependency Chain Setup ---
 
@@ -85,6 +85,14 @@ def delete_target(target_id: UUID, service: PingerServiceDep) -> dict:
 @app.get("/results/", response_model=list[Result])
 def get_results(service: PingerServiceDep) -> list[Result]:
     return service.repo.get_all_results()
+
+
+@app.get("/result/{result_id}", response_model=Result)
+def get_result(result_id: UUID, service: PingerServiceDep) -> Target:
+    result = service.repo.get_result_by_id(result_id)
+    if not result:
+        raise HTTPException(status_code=404, detail=f"Result with ID {result} not found.")
+    return result
 
 
 @app.get("/monitor/{target_id}", response_model=list[Result])

@@ -1,0 +1,65 @@
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends
+from uuid import UUID
+from typing import Annotated
+from pingernoid_client.db.crud import PingerRepository
+from pingernoid_client.db.models import Target, TargetBase
+from pingernoid_client.service import PingerService
+from pingernoid_client.db.database import SessionDep
+
+router = APIRouter()
+
+
+def get_pinger_repo(session: SessionDep) -> PingerRepository:
+    """Dependency that injects the database session into the Repository."""
+    return PingerRepository(session=session)
+
+
+PingerRepoDep = Annotated[PingerRepository, Depends(get_pinger_repo)]
+
+
+def get_pinger_service(repo: PingerRepoDep) -> PingerService:
+    """Dependency that injects the Repository into the Service."""
+    return PingerService(repo=repo)
+
+
+PingerServiceDep = Annotated[PingerService, Depends(get_pinger_service)]
+
+# --- Target Endpoints ---
+
+
+@router.get("/targets/", response_model=list[Target])
+def get_targets(service: PingerServiceDep) -> list[Target]:
+    return service.repo.get_all_targets()
+
+
+@router.get("/target/{target_id}", response_model=Target)
+def get_target(target_id: UUID, service: PingerServiceDep) -> Target:
+    target = service.repo.get_target_by_id(target_id)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Target with ID {target_id} not found.")
+    return target
+
+
+@router.post("/target/", response_model=Target)
+def create_target(target: TargetBase, service: PingerServiceDep, background_tasks: BackgroundTasks) -> Target:
+    existing_target = service.repo.get_target_by_ip(target.ip_addr)
+    if existing_target:
+        raise HTTPException(status_code=409, detail=f"Target with IP address {target.ip_addr} already exists.")
+    db_target = service.repo.create_target(target)
+    background_tasks.add_task(service.ping_target, db_target)
+    return db_target
+
+
+@router.put("/target/{target_id}", response_model=Target)
+def update_target(target_id: UUID, target_data: TargetBase, service: PingerServiceDep) -> Target:
+    updated_target = service.repo.update_target(target_id, target_data)
+    if not updated_target:
+        raise HTTPException(status_code=404, detail=f"Target with ID {target_id} not found.")
+    return updated_target
+
+
+@router.delete("/target/{target_id}")
+def delete_target(target_id: UUID, service: PingerServiceDep) -> dict:
+    if not service.repo.delete_target(target_id):
+        raise HTTPException(status_code=404, detail=f"Target with ID {target_id} not found.")
+    return {"message": f"Target with ID {target_id} was deleted successfully!"}
